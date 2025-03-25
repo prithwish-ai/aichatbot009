@@ -1,0 +1,320 @@
+{
+  "name": "ITI Crop Price Prediction & Alerts",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "triggerAtHour": 8,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "39f81fee-c15f-4c16-982f-a6e64e6b9cb9",
+      "name": "Daily Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.iti-app.com/market-data",
+        "authentication": "basicAuth",
+        "options": {}
+      },
+      "id": "9fab0a12-6bb2-44ec-a7fa-0277f52a5179",
+      "name": "Fetch Market Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        470,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "splitInBatches",
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "9a82c14b-ee06-4e91-94c4-f26b6d9e7a3a",
+      "name": "Split By Crop",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 2,
+      "position": [
+        690,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.iti-app.com/predict",
+        "authentication": "basicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "crop",
+              "value": "={{ $json.crop }}"
+            },
+            {
+              "name": "days_ahead",
+              "value": 7
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "cf1a234d-20c5-4a22-8cb2-e2b1c3d51d12",
+      "name": "Run Price Prediction",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        910,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.price_diff_percentage }}",
+              "operation": "larger",
+              "value2": 10
+            }
+          ],
+          "string": [
+            {
+              "value1": "={{ $json.price_trend }}",
+              "value2": "increasing"
+            }
+          ]
+        }
+      },
+      "id": "66a01337-4f14-4b22-8935-c6e15d6ef2e9",
+      "name": "Filter Significant Price Changes",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 1,
+      "position": [
+        1130,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://api.iti-app.com/farmers?crop={{ $json.crop }}",
+        "authentication": "basicAuth",
+        "options": {}
+      },
+      "id": "2b789511-0b92-44d7-9ed5-c43c71509412",
+      "name": "Get Farmer Contacts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        1350,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "multiplex",
+        "options": {}
+      },
+      "id": "89c0d54e-b4e9-4fc9-bb6c-caa5fc6d32d8",
+      "name": "Combine Data",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [
+        1570,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Prepare alert message for each farmer\nfor (const item of items) {\n  // Get prediction info\n  const crop = item.prediction.crop;\n  const currentPrice = item.prediction.current_price;\n  const bestPrice = item.prediction.best_selling_price;\n  const bestDate = item.prediction.best_selling_date;\n  const trend = item.prediction.price_trend;\n  const priceDiffPct = ((bestPrice - currentPrice) / currentPrice) * 100;\n  \n  // Format farmer's language preference\n  const language = item.farmer.language || 'en';\n  \n  // Create alert message\n  item.alert_message = `PRICE ALERT: ${crop} prices are predicted to ${trend}. ` +\n    `Current price: ₹${currentPrice.toFixed(2)}. ` +\n    `Best selling price in next week: ₹${bestPrice.toFixed(2)} on ${bestDate}. ` +\n    `This is ${priceDiffPct.toFixed(1)}% higher than current price.`;\n  \n  // Add farmer info\n  item.phone = item.farmer.phone;\n  item.farmer_id = item.farmer.id;\n}\n\nreturn items;"
+      },
+      "id": "c2a94f77-f1e5-49e1-95f3-2c4e03b4a9eb",
+      "name": "Prepare Alerts",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1790,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "accountSid": "={{ $env.TWILIO_ACCOUNT_SID }}",
+        "authToken": "={{ $env.TWILIO_AUTH_TOKEN }}",
+        "from": "={{ $env.TWILIO_FROM_NUMBER }}",
+        "to": "={{ $json.phone }}",
+        "message": "={{ $json.alert_message }}"
+      },
+      "id": "5a3f1f20-7894-41fc-afd2-ee9e9d1f5123",
+      "name": "Send SMS Alert",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [
+        2010,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.iti-app.com/log-alert",
+        "authentication": "basicAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "farmer_id",
+              "value": "={{ $json.farmer_id }}"
+            },
+            {
+              "name": "crop",
+              "value": "={{ $json.prediction.crop }}"
+            },
+            {
+              "name": "alert_message",
+              "value": "={{ $json.alert_message }}"
+            },
+            {
+              "name": "timestamp",
+              "value": "={{ $now.toISOString() }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "86c0d45e-1a79-4c84-9deb-6a74fc85e67a",
+      "name": "Log Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [
+        2230,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Daily Schedule": {
+      "main": [
+        [
+          {
+            "node": "Fetch Market Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Market Data": {
+      "main": [
+        [
+          {
+            "node": "Split By Crop",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split By Crop": {
+      "main": [
+        [
+          {
+            "node": "Run Price Prediction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Price Prediction": {
+      "main": [
+        [
+          {
+            "node": "Filter Significant Price Changes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Significant Price Changes": {
+      "main": [
+        [
+          {
+            "node": "Get Farmer Contacts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Farmer Contacts": {
+      "main": [
+        [
+          {
+            "node": "Combine Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Data": {
+      "main": [
+        [
+          {
+            "node": "Prepare Alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Alerts": {
+      "main": [
+        [
+          {
+            "node": "Send SMS Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send SMS Alert": {
+      "main": [
+        [
+          {
+            "node": "Log Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+} 

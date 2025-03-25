@@ -1,0 +1,8 @@
+{
+  "language": "en",
+  "voice_enabled": true,
+  "difficulty_level": "medium",
+  "learning_path": null,
+  "response_length": "concise",
+  "voice_wake_word": "iti"
+}
